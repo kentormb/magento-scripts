@@ -1,0 +1,125 @@
+#!/bin/bash
+# Clone M2
+
+# =============================================================================================================================
+#
+# EDIT THIS
+#
+# =============================================================================================================================
+
+DBNAME=""
+NAME=""
+GITREPO="https://username:password@bitbucket.org/kentormb/repo.git"
+
+DIR=""
+
+SERVERUSER=""
+
+DBPATH=""
+REOMTEHOST=""
+REMOTEDBUSER=""
+REMOTEDBPASS=""
+
+MEDIAPATH=""
+MEDIAHOST=""
+MEDIAUSER=""
+MEDIAPASS=""
+
+DBUSER=""
+DBPASS=""
+DBROOTPASS=""
+
+VHOSTPATH=""
+
+# =============================================================================================================================
+#
+# DO NOT EDIT THIS
+#
+# =============================================================================================================================
+
+
+# 1 =============================================================================================================================
+
+echo "+ Create DB"
+mysql -uroot -p${DBROOTPASS} -e "CREATE DATABASE ${DBNAME} /*\!40100 DEFAULT CHARACTER SET utf8 */;"
+mysql -uroot -p${DBROOTPASS} -e "GRANT ALL PRIVILEGES ON ${DBNAME}.* TO '${DBUSER}'@'localhost';"
+mysql -uroot -p${DBROOTPASS} -e "FLUSH PRIVILEGES;"
+
+# 2 =============================================================================================================================
+
+echo "+ Copy DB Localy"
+if [ "$REOMTEHOST" == "" ]
+then
+	cp $DBPATH "${DIR}/${NAME}.sql"
+else	
+	sshpass -p "${REMOTEDBPASS}" scp -r "${REMOTEDBUSER}@${REOMTEHOST}:${DBPATH}" "${DIR}/${NAME}.sql"
+fi
+
+# 3 =============================================================================================================================
+
+echo "+ Import Data"
+mysql -uroot -p${DBROOTPASS} "${DBNAME}" < "${DIR}/${NAME}.sql"
+rm "${DIR}/${NAME}.sql"
+
+# 4 =============================================================================================================================
+
+echo "+ Update db urls"
+mysql -uroot -p${DBROOTPASS} -e "UPDATE ${DBNAME}.core_config_data SET value='http://${NAME}.marios.com.gr' WHERE path='web/unsecure/base_url' OR path='web/secure/base_url'"
+
+# 5 =============================================================================================================================
+
+echo "+ Clone Repo"
+git clone "${GITREPO}"
+
+# 6 =============================================================================================================================
+
+echo "+ Create VHOST"
+
+echo "<VirtualHost *:80>
+ServerName ${NAME}.az2.netsteps-apps.gr
+DocumentRoot ${DIR}/${NAME}
+<IfModule mod_fcgid.c>
+    SuexecUserGroup azotos azotos
+    <Directory ${DIR}/${NAME}>
+      #Allow from all
+      Require all granted
+    </Directory>
+</IfModule>
+Include /etc/apache2/conf/magento-sec.conf
+Include /etc/apache2/conf/fcgid.conf
+ErrorLog /var/www/public/log/${NAME}.error.log
+CustomLog /var/www/public/log/${NAME}.access.log combined
+</VirtualHost>" > "${VHOSTPATH}/${NAME}.marios.com.gr.conf"
+
+a2ensite ${NAME}.marios.com.gr
+systemctl reload apache2
+
+# 7 =============================================================================================================================
+
+echo "+ Get Media"
+sshpass -p "${MEDIAPASS}" rsync -a "${MEDIAUSER}@${MEDIAHOST}:${MEDIAPATH}" "${DIR}/${NAME}/pub/media"
+
+# 8 =============================================================================================================================
+
+echo "+ Create Admin User"
+cd "${DIR}/${NAME}"; php bin/magento admin:user:create --admin-user="mm" --admin-firstname="Admin" --admin-lastname="A" --admin-email="admin@marios.com.gr" --admin-password="test1234"
+
+# 9 =============================================================================================================================
+
+echo "+ Composer Install"
+cd "${DIR}/${NAME}"; composer install 
+
+# 10 =============================================================================================================================
+
+echo "+ Change Permissions"
+find "${DIR}/${NAME}" -type d -exec chmod 755 {} \;
+find "${DIR}/${NAME}" -type f -exec chmod 644 {} \;
+
+# =============================================================================================================================
+
+echo "+ Change Owner"
+chown -R $SERVERUSER:$SERVERUSER "${DIR}/${NAME}"
+
+
+
+echo "--- DONE ---"
