@@ -1,0 +1,115 @@
+#!/bin/bash
+# Install Fresh M2
+
+# =============================================================================================================================
+#
+# EDIT THIS
+#
+# =============================================================================================================================
+
+DBNAME=""
+NAME=""
+
+DIR=""
+
+URL="$NAME.marios.com.gr"
+
+SERVERUSER=""
+
+DBUSER=""
+DBPASS=""
+DBROOTPASS=""
+
+VHOSTPATH=""
+
+# =============================================================================================================================
+#
+# DO NOT EDIT THIS
+#
+# =============================================================================================================================
+
+
+# 1 =============================================================================================================================
+
+echo "+ Create DB"
+mysql -uroot -p${DBROOTPASS} -e "CREATE DATABASE ${DBNAME} /*\!40100 DEFAULT CHARACTER SET utf8 */;"
+mysql -uroot -p${DBROOTPASS} -e "GRANT ALL PRIVILEGES ON ${DBNAME}.* TO '${DBUSER}'@'localhost';"
+mysql -uroot -p${DBROOTPASS} -e "FLUSH PRIVILEGES;"
+
+# 2 =============================================================================================================================
+
+echo "+ Create Dir and Change Owner"
+mkdir "${DIR}/${NAME}"
+chown -R $SERVERUSER:$SERVERUSER "${DIR}/${NAME}"
+
+# 3 =============================================================================================================================
+
+echo "+ Retrive Magento 2 Files"
+runuser -l $SERVERUSER -c "composer create-project --repository=https://repo.magento.com/ magento/project-community-edition ${DIR}/${NAME}"
+
+# 4 =============================================================================================================================
+
+echo "+ Install Magento 2"
+cd "${DIR}/${NAME}"
+php bin/magento setup:install --base-url="http://${URL}/" \
+  --db-host=localhost --db-name=$DBNAME --backend-frontname=admin \
+  --db-user=$DBUSER --db-password=$DBPASS \
+  --admin-firstname=Firstname --admin-lastname=Lastname --admin-email=email@marios.com.gr.gr \
+  --admin-user=admin --admin-password=test123 --language=en_US \
+  --currency=USD --timezone=America/Chicago --cleanup-database \
+  --sales-order-increment-prefix="MIR$" --session-save=files --use-rewrites=1
+
+# 6 =============================================================================================================================
+
+echo "+ Create VHOST"
+echo "
+
+<VirtualHost *:80>
+    ServerName ${URL}
+    ServerAlias ${URL}
+    DocumentRoot ${DIR}/${NAME}
+    FcgidMaxRequestLen 20000000
+    IdleTimeout 600
+    BusyTimeout 600
+    ProcessLifeTime 7200
+    IPCConnectTimeout 600
+    IPCCommTimeout 7200
+    FcgidBusyTimeout 7200
+    FcgidIOTimeout   14400
+    <IfModule mod_fcgid.c>
+    SuexecUserGroup uat uat
+    <Directory ${DIR}/${NAME}>
+          Order deny,allow
+          Allow from all
+    </Directory>
+    </IfModule>
+    ErrorLog /var/www/public/uat/log/${NAME}.error.log
+    CustomLog /var/www/public/uat/log/${NAME}.access.log combined
+</VirtualHost>
+" >> "${VHOSTPATH}"
+
+systemctl reload apache2
+
+# 8 =============================================================================================================================
+
+echo "+ Composer Install"
+runuser -l  $SERVERUSER -c "cd ${DIR}/${NAME}; composer update;" 
+
+# 9 =============================================================================================================================
+
+echo "+ Change Permissions"
+find "${DIR}/${NAME}" -type d -exec chmod 755 {} \;
+find "${DIR}/${NAME}" -type f -exec chmod 644 {} \;
+
+# 10 =============================================================================================================================
+
+echo "+ Create Dir and Change Owner"
+mkdir "${DIR}/${NAME}"
+chown -R $SERVERUSER:$SERVERUSER "${DIR}/${NAME}"
+
+# 11 =============================================================================================================================
+
+echo "+ Clear Cache"
+rm -rf var/cache/*
+
+echo "--- DONE ---"
