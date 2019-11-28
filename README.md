@@ -23,3 +23,10 @@
 + Change Permissions
 + Create Dir and Change Owner
 + Clear Cache
+
+# Create Admin user for Magento 1
+
++ Copy the file create_admin.php in the root folder
++ Edit the file and change the values with xxxxx
++ Run it
++ After the user creation the file will delete itself
